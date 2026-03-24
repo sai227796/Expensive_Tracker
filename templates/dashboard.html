@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SpendWise — Expense Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="logo">
+    <span class="logo-icon">💸</span>
+    <span class="logo-text">SpendWise</span>
+  </div>
+  <nav class="nav">
+    <a href="#overview" class="nav-link active" onclick="showSection('overview')">
+      <span class="nav-icon">📊</span> Overview
+    </a>
+    <a href="#transactions" class="nav-link" onclick="showSection('transactions')">
+      <span class="nav-icon">📋</span> Transactions
+    </a>
+    <a href="#analytics" class="nav-link" onclick="showSection('analytics')">
+      <span class="nav-icon">📈</span> Analytics
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="budget-pill">
+      <span>Monthly Budget</span>
+      <strong>₹{{ "{:,.0f}".format(monthly_total) }}</strong>
+    </div>
+  </div>
+</aside>
+
+<!-- Main -->
+<main class="main">
+
+  <!-- Header -->
+  <header class="topbar">
+    <div class="month-nav">
+      <a href="{{ url_for('dashboard', year=prev_year, month=prev_month) }}" class="nav-arrow">&#8592;</a>
+      <h1 class="month-title">{{ month_name }} <span>{{ year }}</span></h1>
+      <a href="{{ url_for('dashboard', year=next_year, month=next_month) }}" class="nav-arrow">&#8594;</a>
+    </div>
+    <button class="btn-add" onclick="openModal()">+ Add Expense</button>
+  </header>
+
+  <!-- Overview Section -->
+  <section id="overview" class="section active">
+
+    <div class="stat-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">Total Spent</div>
+        <div class="stat-value">₹{{ "{:,.2f}".format(monthly_total) }}</div>
+        <div class="stat-sub">{{ expenses|length }} transactions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Daily Average</div>
+        <div class="stat-value">₹{{ "{:,.2f}".format(monthly_total / days_in_month) }}</div>
+        <div class="stat-sub">over {{ days_in_month }} days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Largest Spend</div>
+        <div class="stat-value">
+          {% if expenses %}₹{{ "{:,.2f}".format(expenses|map(attribute='amount')|max) }}{% else %}₹0{% endif %}
+        </div>
+        <div class="stat-sub">single transaction</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Categories</div>
+        <div class="stat-value">{{ cat_data|length }}</div>
+        <div class="stat-sub">active this month</div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card wide">
+        <div class="chart-header">
+          <h2>Daily Spending</h2>
+          <span class="chart-subtitle">{{ month_name }} {{ year }}</span>
+        </div>
+        <canvas id="dailyChart" height="100"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <h2>By Category</h2>
+        </div>
+        <div class="donut-wrap">
+          <canvas id="categoryChart"></canvas>
+          <div class="donut-center">
+            <span>₹{{ "{:,.0f}".format(monthly_total) }}</span>
+            <small>Total</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cat-breakdown">
+      <h2 class="section-title">Category Breakdown</h2>
+      <div class="cat-grid">
+        {% for row in cat_data %}
+        <div class="cat-card" style="--cat-color: {{ row.color }}">
+          <div class="cat-icon">{{ row.icon }}</div>
+          <div class="cat-info">
+            <div class="cat-name">{{ row.name }}</div>
+            <div class="cat-bar-wrap">
+              <div class="cat-bar" style="width: {{ (row.total / monthly_total * 100) if monthly_total else 0 }}%"></div>
+            </div>
+          </div>
+          <div class="cat-amount">₹{{ "{:,.0f}".format(row.total) }}</div>
+        </div>
+        {% endfor %}
+        {% if not cat_data %}
+        <div class="empty-state">No expenses recorded this month.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Transactions Section -->
+  <section id="transactions" class="section">
+    <div class="tx-header">
+      <h2>All Transactions</h2>
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search transactions..." onkeyup="filterTransactions()">
+    </div>
+    <div class="tx-list" id="txList">
+      {% for e in expenses %}
+      <div class="tx-item" data-title="{{ e.title|lower }}" data-id="{{ e.id }}">
+        <div class="tx-icon" style="background: {{ e.category.color }}22; color: {{ e.category.color }}">{{ e.category.icon }}</div>
+        <div class="tx-info">
+          <div class="tx-title">{{ e.title }}</div>
+          <div class="tx-meta">{{ e.category.name }} &bull; {{ e.date.strftime('%d %b %Y') }}</div>
+          {% if e.note %}<div class="tx-note">{{ e.note }}</div>{% endif %}
+        </div>
+        <div class="tx-right">
+          <div class="tx-amount">₹{{ "{:,.2f}".format(e.amount) }}</div>
+          <div class="tx-actions">
+            <button class="btn-edit" onclick="editExpense({{ e.to_dict()|tojson }})">✏️</button>
+            <button class="btn-del" onclick="deleteExpense({{ e.id }}, this)">🗑️</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      {% if not expenses %}
+      <div class="empty-state">No transactions this month. Start by adding one!</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- Analytics Section -->
+  <section id="analytics" class="section">
+    <h2 class="section-title">6-Month Trend</h2>
+    <div class="chart-card full">
+      <canvas id="trendChart" height="80"></canvas>
+    </div>
+  </section>
+
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Expense</h3>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editId">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="expTitle" class="form-input" placeholder="e.g. Lunch at Cafe">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (₹)</label>
+          <input type="number" id="expAmount" class="form-input" placeholder="0.00" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="expDate" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="expCategory" class="form-input">
+          {% for cat in categories %}
+          <option value="{{ cat.id }}">{{ cat.icon }} {{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Note (optional)</label>
+        <textarea id="expNote" class="form-input" rows="2" placeholder="Any details..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" onclick="saveExpense()">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+  const dailyData = {{ daily_chart | tojson }};
+  const catData = {{ cat_data | map(attribute='name') | list | tojson }};
+  const catAmounts = {{ cat_data | map(attribute='total') | list | tojson }};
+  const catColors = {{ cat_data | map(attribute='color') | list | tojson }};
+  const trendLabels = {{ trend_data | map(attribute='label') | list | tojson }};
+  const trendTotals = {{ trend_data | map(attribute='total') | list | tojson }};
+  const daysInMonth = {{ days_in_month }};
+  initCharts(dailyData, catData, catAmounts, catColors, trendLabels, trendTotals, daysInMonth);
+</script>
+</body>
+</html>
